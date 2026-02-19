@@ -33,17 +33,24 @@ class ContinuousTimeMarkovChain:
     def __init__(self, nucleotides=['A', 'C', 'G', 'T']):
         self.nucleotides = nucleotides
         self.n_states = len(nucleotides)
-        self.nuc_to_idx = {nuc: i for i, nuc in enumerate(nucleotides)}
-        
+
     def jukes_cantor_rate_matrix(self, alpha=1.0):
         """
         Jukes-Cantor model: all substitution rates equal
         Q_ij = alpha for i != j
         Q_ii = -sum(Q_ij for j != i)
+        
+        CORRECTED: Normalized to unit expected substitution rate
         """
         Q = np.ones((self.n_states, self.n_states)) * alpha
         np.fill_diagonal(Q, 0)
         np.fill_diagonal(Q, -Q.sum(axis=1))
+        
+        # Normalize to unit expected rate (Siepel et al. 2005)
+        pi = np.ones(self.n_states) / self.n_states
+        r = -np.sum(pi * np.diagonal(Q))
+        Q = Q / r
+        
         return Q
     
     def hky85_rate_matrix(self, kappa=2.0, pi=None):
@@ -51,6 +58,8 @@ class ContinuousTimeMarkovChain:
         HKY85 model: transition/transversion bias
         kappa: transition/transversion ratio
         pi: equilibrium frequencies
+        
+        CORRECTED: Time-reversible form with Q[i,j] = rate * pi[j]
         """
         if pi is None:
             pi = np.ones(4) / 4
@@ -58,13 +67,14 @@ class ContinuousTimeMarkovChain:
         Q = np.zeros((4, 4))
         # A=0, C=1, G=2, T=3
         # Transitions: A<->G (0<->2), C<->T (1<->3)
-        # Transversions: all others
         
-        # Transitions (kappa rate)
-        Q[0, 2] = Q[2, 0] = kappa * pi[2]  # A <-> G
-        Q[1, 3] = Q[3, 1] = kappa * pi[3]  # C <-> T
+        # Transitions (kappa * pi_j where j is target nucleotide)
+        Q[0, 2] = kappa * pi[2]  # A -> G
+        Q[2, 0] = kappa * pi[0]  # G -> A
+        Q[1, 3] = kappa * pi[3]  # C -> T
+        Q[3, 1] = kappa * pi[1]  # T -> C
         
-        # Transversions (unit rate)
+        # Transversions (pi_j where j is target nucleotide)
         Q[0, 1] = pi[1]  # A -> C
         Q[0, 3] = pi[3]  # A -> T
         Q[1, 0] = pi[0]  # C -> A
@@ -75,7 +85,12 @@ class ContinuousTimeMarkovChain:
         Q[3, 2] = pi[2]  # T -> G
         
         # Set diagonal
+        np.fill_diagonal(Q, 0)
         np.fill_diagonal(Q, -Q.sum(axis=1))
+        
+        # Normalize to unit expected rate (Siepel et al. 2005)
+        r = -np.sum(pi * np.diagonal(Q))
+        Q = Q / r
         
         return Q
     
@@ -94,6 +109,10 @@ class ContinuousTimeMarkovChain:
         b[-1] = 1
         pi = np.linalg.lstsq(A, b, rcond=None)[0]
         return pi
+
+
+
+
 
 
 class PhylogeneticTree:
@@ -185,15 +204,17 @@ class PhyloHMM:
         return likelihood
     
     def forward_algorithm(self, sequence: List[Dict[str, str]], mu: float, nu: float,
-                         Q: np.ndarray, pi: np.ndarray, rho: float) -> Tuple[np.ndarray, float]:
+                         Q: np.ndarray, pi: np.ndarray, rho: float) -> Tuple[np.ndarray, float, np.ndarray]:
         """
         Forward algorithm for computing P(sequence | parameters)
-        Returns: alpha table and log-likelihood
+        CORRECTED: Uses scaling constants c_i to prevent numerical underflow (Siepel et al. 2005)
+        Returns: alpha table, log-likelihood, and scaling constants
         """
         L = len(sequence)
         alpha = np.zeros((L, 2))  # [position, state]
+        c = np.zeros(L)  # Scaling constants
         
-        # Initial distribution (stationary)
+        # Initial distribution (stationary distribution of HMM)
         gamma_c = nu / (mu + nu)
         gamma_n = mu / (mu + nu)
         initial_dist = np.array([gamma_n, gamma_c])
@@ -207,21 +228,31 @@ class PhyloHMM:
             emit_prob = self.emission_probability(sequence[0], state, Q, pi, rho)
             alpha[0, s_idx] = initial_dist[s_idx] * emit_prob
         
-        # Forward recursion
+        # Scale first column
+        c[0] = np.sum(alpha[0, :])
+        alpha[0, :] = alpha[0, :] / c[0]
+        
+        # Forward recursion with scaling
         for i in range(1, L):
             for s_idx, state in enumerate(['n', 'c']):
                 emit_prob = self.emission_probability(sequence[i], state, Q, pi, rho)
                 alpha[i, s_idx] = emit_prob * np.sum(alpha[i-1, :] * trans[:, s_idx])
+            
+            # Scale current column
+            c[i] = np.sum(alpha[i, :])
+            alpha[i, :] = alpha[i, :] / c[i]
         
-        # Total likelihood
-        total_likelihood = np.sum(alpha[-1, :])
-        log_likelihood = np.log(total_likelihood + 1e-100)
+        # Total log-likelihood using scaling constants
+        log_likelihood = np.sum(np.log(np.maximum(c, 1e-300)))
         
-        return alpha, log_likelihood
-    
+        return alpha, log_likelihood, c
+
     def backward_algorithm(self, sequence: List[Dict[str, str]], mu: float, nu: float,
-                          Q: np.ndarray, pi: np.ndarray, rho: float) -> np.ndarray:
-        """Backward algorithm"""
+                          Q: np.ndarray, pi: np.ndarray, rho: float, c: np.ndarray) -> np.ndarray:
+        """
+        Backward algorithm
+        CORRECTED: Uses same scaling constants from forward algorithm (Siepel et al. 2005)
+        """
         L = len(sequence)
         beta = np.zeros((L, 2))
         
@@ -229,30 +260,38 @@ class PhyloHMM:
         trans = np.array([[1 - mu, mu],
                          [nu, 1 - nu]])
         
-        # Initialize: beta[L-1, :] = 1
-        beta[-1, :] = 1.0
+        # Initialize and scale
+        beta[-1, :] = 1.0 / c[-1]
         
-        # Backward recursion
+        # Backward recursion with scaling
         for i in range(L - 2, -1, -1):
             for s_idx, state in enumerate(['n', 'c']):
                 for s_next_idx, state_next in enumerate(['n', 'c']):
                     emit_prob = self.emission_probability(sequence[i+1], state_next, Q, pi, rho)
                     beta[i, s_idx] += trans[s_idx, s_next_idx] * emit_prob * beta[i+1, s_next_idx]
+            
+            # Scale using corresponding c_i from forward pass
+            beta[i, :] = beta[i, :] / c[i]
         
         return beta
-    
+
     def posterior_probabilities(self, sequence: List[Dict[str, str]], mu: float, nu: float,
                                Q: np.ndarray, pi: np.ndarray, rho: float) -> np.ndarray:
-        """Compute posterior state probabilities using Forward-Backward"""
-        alpha, _ = self.forward_algorithm(sequence, mu, nu, Q, pi, rho)
-        beta = self.backward_algorithm(sequence, mu, nu, Q, pi, rho)
+        """
+        Compute posterior state probabilities using Forward-Backward
+        CORRECTED: Uses scaled alpha and beta (Siepel et al. 2005)
+        """
+        alpha, _, c = self.forward_algorithm(sequence, mu, nu, Q, pi, rho)
+        beta = self.backward_algorithm(sequence, mu, nu, Q, pi, rho, c)
         
         # gamma[i, s] = P(z_i = s | x)
+        # With scaling: gamma = alpha * beta (already properly normalized)
         gamma = alpha * beta
+        # Normalize to ensure sum to 1 (numerical stability)
         gamma = gamma / gamma.sum(axis=1, keepdims=True)
         
         return gamma
-    
+
     def viterbi_algorithm(self, sequence: List[Dict[str, str]], mu: float, nu: float,
                          Q: np.ndarray, pi: np.ndarray, rho: float) -> Tuple[np.ndarray, List[str]]:
         """
@@ -491,7 +530,7 @@ def main():
         st.subheader("Results")
         
         st.metric("Column Likelihood", f"{likelihood:.6e}")
-        st.metric("Log-Likelihood", f"{np.log(likelihood):.4f}")
+        st.metric("Log-Likelihood", f"{np.log(np.maximum(likelihood, 1e-300)):.4f}")
         
         st.subheader("Partial Likelihoods at Nodes")
         
@@ -582,14 +621,14 @@ def main():
         
         with col1:
             st.metric("P(x|ψ_n) Neutral", f"{L_neutral:.6e}")
-            st.metric("log P(x|ψ_n)", f"{np.log(L_neutral):.4f}")
+            st.metric("log P(x|ψ_n)", f"{np.log(np.maximum(L_neutral, 1e-300)):.4f}")
         
         with col2:
             st.metric("P(x|ψ_c) Conserved", f"{L_conserved:.6e}")
-            st.metric("log P(x|ψ_c)", f"{np.log(L_conserved):.4f}")
+            st.metric("log P(x|ψ_c)", f"{np.log(np.maximum(L_conserved, 1e-300)):.4f}")
         
         with col3:
-            log_ratio = np.log(L_conserved) - np.log(L_neutral)
+            log_ratio = np.log(np.maximum(L_conserved, 1e-300)) - np.log(np.maximum(L_neutral, 1e-300))
             st.metric("Log-Likelihood Ratio", f"{log_ratio:.4f}")
             
             if log_ratio > 0:
@@ -600,7 +639,7 @@ def main():
         # Visualization
         fig, ax = plt.subplots(figsize=(8, 4))
         models = ['Neutral', 'Conserved']
-        likelihoods = [np.log(L_neutral), np.log(L_conserved)]
+        likelihoods = [np.log(np.maximum(L_neutral, 1e-300)), np.log(np.maximum(L_conserved, 1e-300))]
         colors = ['blue', 'green']
         ax.bar(models, likelihoods, color=colors, alpha=0.7)
         ax.set_ylabel('Log-Likelihood')
@@ -756,7 +795,7 @@ def main():
             hmm = PhyloHMM(ctmc, tree)
             
             # Run Forward algorithm
-            alpha, log_likelihood = hmm.forward_algorithm(columns, mu, nu, Q, pi, rho)
+            alpha, log_likelihood, c = hmm.forward_algorithm(columns, mu, nu, Q, pi, rho)
             
             st.subheader("Results")
             
@@ -831,7 +870,7 @@ def main():
                 hmm = PhyloHMM(ctmc, tree)
                 
                 # Initial likelihood
-                _, log_lik_before = hmm.forward_algorithm(columns, mu_init, nu_init, Q, pi, rho)
+                _, log_lik_before, _ = hmm.forward_algorithm(columns, mu_init, nu_init, Q, pi, rho)
                 
                 st.subheader("Before EM Step")
                 col1, col2, col3 = st.columns(3)
@@ -846,8 +885,8 @@ def main():
                 gamma = hmm.posterior_probabilities(columns, mu_init, nu_init, Q, pi, rho)
                 
                 # Compute transition posteriors (xi)
-                alpha, _ = hmm.forward_algorithm(columns, mu_init, nu_init, Q, pi, rho)
-                beta = hmm.backward_algorithm(columns, mu_init, nu_init, Q, pi, rho)
+                alpha, _, c_temp = hmm.forward_algorithm(columns, mu_init, nu_init, Q, pi, rho)
+                beta = hmm.backward_algorithm(columns, mu_init, nu_init, Q, pi, rho, c_temp)
                 
                 trans = np.array([[1 - mu_init, mu_init],
                                  [nu_init, 1 - nu_init]])
@@ -875,7 +914,7 @@ def main():
                 nu_new = expected_c_to_n / (expected_time_in_c + 1e-10)
                 
                 # New likelihood
-                _, log_lik_after = hmm.forward_algorithm(columns, mu_new, nu_new, Q, pi, rho)
+                _, log_lik_after, _ = hmm.forward_algorithm(columns, mu_new, nu_new, Q, pi, rho)
                 
                 st.subheader("After EM Step")
                 col1, col2, col3 = st.columns(3)
@@ -976,7 +1015,7 @@ def main():
                 
                 # KL contribution
                 if L_c > 1e-100 and L_n > 1e-100:
-                    kl += L_c * np.log(L_c / L_n)
+                    kl += L_c * np.log2(max(L_c, 1e-300) / max(L_n, 1e-300))
             
             kl_divergences.append(max(kl, 1e-10))
             l_mins.append(1.0 / max(kl, 1e-10))
@@ -1241,7 +1280,7 @@ def main():
                     st.subheader("Step 2: Forward Algorithm (Computing Total Likelihood)")
                     st.markdown("Computing α table to get P(sequence|θ)")
                     
-                    alpha, log_likelihood = hmm.forward_algorithm(columns, mu, nu, Q, pi, rho)
+                    alpha, log_likelihood, c = hmm.forward_algorithm(columns, mu, nu, Q, pi, rho)
                     
                     st.metric("Total Log-Likelihood", f"{log_likelihood:.4f}")
                     
@@ -1306,7 +1345,7 @@ def main():
                     st.subheader("Step 5: Phylogenetic Information Threshold")
                     
                     # Compute KL divergence
-                    kl_div = sum(L_c * np.log(max(L_c, 1e-100) / max(L_n, 1e-100))
+                    kl_div = sum(L_c * np.log2(max(L_c, 1e-300) / max(L_n, 1e-300))
                                 for L_c, L_n in zip(col_likelihoods_c, col_likelihoods_n))
                     kl_div = kl_div / L  # Average per site
                     
@@ -1320,7 +1359,7 @@ def main():
                     
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("KL Divergence", f"{kl_div:.4f} bits/site")
+                        st.metric("KL Divergence (H)", f"{kl_div:.4f} bits/site")
                     with col2:
                         st.metric("Min Length (Lₘᵢₙ)", f"{L_min:.1f} bp" if L_min < 1000 else "∞")
                     with col3:
@@ -1528,12 +1567,9 @@ OUTPUT:
     st.sidebar.markdown("---")
     st.sidebar.markdown("""
     ### About
-                        
     Created as a part Computational Functional Genomics course January 2026 at *IISER Pune*.
-                        
-    - if you detect some error, email on jatin.raghuwanshi@students.iiserpune.ac.in 
-
-                            
+    
+    If you detect an error, email jatin.raghuwanshi@students.iiserpune.ac.in 
     
     **Reference**: Siepel et al. (2005) Genome Research
     """)
