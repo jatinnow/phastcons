@@ -1542,9 +1542,9 @@ OUTPUT:
     st.sidebar.markdown("---")
     st.sidebar.markdown("""
     ### About
-    This application implements the complete PhastCons algorithm for educational purposes.
-    Each module exposes the mathematical machinery behind phylogenetic HMMs.
+    Created as a part Computational Functional Genomics course January 2026 at *IISER Pune*.
     
+    If you detect an error, email jatin.raghuwanshi@students.iiserpune.ac.in 
     **Reference**: Siepel et al. (2005) Genome Research
     """)
 
