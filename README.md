@@ -6,26 +6,6 @@ A comprehensive educational Streamlit application for understanding the PhastCon
 
 This application implements the complete PhastCons algorithm (Siepel et al., 2005) with 8 interactive modules that expose the mathematical "engine" of phylogenetic Hidden Markov Models for conservation detection.
 
-## Installation
-
-### Prerequisites
-- Python 3.8 or higher
-- pip package manager
-
-### Setup
-
-1. Install required dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-2. Run the application:
-```bash
-streamlit run phastcons_lab.py
-```
-
-3. The application will open in your default web browser at `http://localhost:8501`
-
 ## Features
 
 ### Module 1: Continuous-Time Markov Chain (The Foundation)
@@ -76,21 +56,20 @@ streamlit run phastcons_lab.py
 - Viterbi matrix visualization
 - Path backtracking demonstration
 
-## Educational Goals
+### Module 9: Complete PhastCons Pipeline ⭐ NEW
+- **End-to-end integration** of all 8 modules
+- **Step-by-step execution** showing complete workflow
+- **Column likelihoods** → Forward algorithm → Posterior probabilities → Viterbi decoding
+- **Comprehensive visualizations** with 4-panel plots:
+  - Log-likelihood ratios per position
+  - Conservation scores (posterior probabilities)
+  - Viterbi path annotation
+  - Sequence with state labels
+- **Real-time metrics**: KL divergence, Lₘᵢₙ, PIT
+- **Conserved element identification** with scores
+- **Algorithm flow diagram** showing complete pipeline
+- **Interactive parameter tuning** to see effects on predictions
 
-This tool is designed so that students can:
-1. Understand the mathematical foundations of PhastCons
-2. See how parameters affect calculations in real-time
-3. Gain intuition for phylogenetic HMMs
-4. Re-derive the PhastCons paper from first principles
-
-## Technical Implementation
-
-### Core Classes
-
-- **ContinuousTimeMarkovChain**: Handles evolutionary models and matrix exponentials
-- **PhylogeneticTree**: Implements Felsenstein's pruning algorithm
-- **PhyloHMM**: Complete phylogenetic HMM with Forward-Backward and Viterbi
 
 ### Key Algorithms
 
@@ -98,14 +77,6 @@ This tool is designed so that students can:
 - Dynamic programming for Forward-Backward
 - Viterbi algorithm for optimal path finding
 - EM algorithm for parameter estimation
-
-## Usage Tips
-
-1. **Start with Module 1**: Build intuition for continuous-time evolution
-2. **Progress Sequentially**: Each module builds on previous concepts
-3. **Experiment with Parameters**: Use sliders to see real-time updates
-4. **Compare Results**: Try different sequences and parameter combinations
-5. **Read the Math**: LaTeX equations explain what's being computed
 
 ## Example Workflow
 
@@ -117,10 +88,11 @@ This tool is designed so that students can:
 6. **Module 6**: Run EM to see parameter learning
 7. **Module 7**: Explore detection thresholds at different ρ values
 8. **Module 8**: Decode "AAAAGGGGGTTTT" to find conserved regions
+9. **Module 9**: Run complete pipeline on "AAAAAAGGGGGGTTTTTTAAAACCCCGGGGTTTTAAAA" to see all steps integrated with visualizations
 
-## Mathematical Reference
+## Reference
 
-The application implements concepts from:
+The Supplementary Material from:
 
 **Siepel, A., Bejerano, G., Pedersen, J. S., Hinrichs, A. S., Hou, M., Rosenbloom, K., ... & Haussler, D. (2005).** 
 *Evolutionarily conserved elements in vertebrate, insect, worm, and yeast genomes.* 
@@ -163,24 +135,10 @@ Use matplotlib/seaborn to add:
 - Parameter sensitivity plots
 - Convergence trajectories
 
-## License
-
-Educational use - based on published scientific algorithms.
-
-## Contributing
-
-Suggestions for improvements:
-- Additional evolutionary models
-- More complex tree structures
-- Performance optimizations
-- Additional visualizations
-
 ## Contact
 
-For questions about the implementation or educational use, refer to the original PhastCons paper and documentation.
+if you detect some error, email on jatin.raghuwanshi@students.iiserpune.ac.in 
 
 ---
 
 **Built with**: Streamlit, NumPy, SciPy, Pandas, Matplotlib, Seaborn
-
-**Tested on**: Python 3.8+, Modern web browsers (Chrome, Firefox, Safari)
