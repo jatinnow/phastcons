@@ -1529,7 +1529,7 @@ OUTPUT:
     st.sidebar.markdown("""
     ### About
                         
-    Created by **Jatin Raghuwanshi** as a part Computational Functional Genomics course January 2026 at *IISER Pune*.
+    Created as a part Computational Functional Genomics course January 2026 at *IISER Pune*.
                         
     - if you detect some error, email on jatin.raghuwanshi@students.iiserpune.ac.in 
 
