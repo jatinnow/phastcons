@@ -325,7 +325,7 @@ def plot_dataframe_heatmap(df: pd.DataFrame, title: str):
 def main():
     st.title("🧬 The Interactive Mathematical PhastCons Lab")
     st.markdown("""
-    **An Educational Journey Through Phylogenetic Hidden Markov Models**
+    **A walk through of Phylogenetic Hidden Markov Models and how they work**
     
     This application exposes the complete mathematical engine of the PhastCons algorithm.
     Each module builds on the previous, from basic continuous-time Markov chains to full
